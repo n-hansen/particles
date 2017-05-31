@@ -37,11 +37,11 @@ projectPoint :: Floating a
              => M44 a -- ^ Projection matrix
              -> V3 a -- ^ Point to project
              -> V2 a
-projectPoint projM = view _xy .
-                     normalizePoint .
-                     (projM !*) .
-                     point
-
+projectPoint projM = view _xy
+                     . normalizePoint
+                     . (projM !*)
+                     . point
+                     
 
 --- Cairo rendering ---
 
