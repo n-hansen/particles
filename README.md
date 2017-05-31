@@ -1,1 +1,3 @@
 # particles
+
+Simple physics simulation.
