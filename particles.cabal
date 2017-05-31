@@ -25,3 +25,4 @@ executable particles
                      , linear
                      , lens
                      , cairo
+                     , gloss
