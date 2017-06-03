@@ -25,6 +25,7 @@ executable particles
                      , OverloadedStrings
   build-depends:       base >= 4.7 && < 5
                      , classy-prelude
+                     , mtl
                      , linear
                      , lens
                      , cairo

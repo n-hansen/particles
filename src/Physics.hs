@@ -1,9 +1,35 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Physics where
+module Physics
+  ( Particle (..)
+  , particleLocation
+  , particleVelocity
+  , particleInvInertia
+  , particleHistory
+  , particleData
+
+  , Force (..)
+  , forceEqn
+  , forceLocation
+  , forceData
+  , evalForce
+
+  , System (..)
+  , systemParticles
+  , systemForces
+  , systemTime
+  , systemUpdate
+  , runSystemUpdate
+
+  , SystemUpdater
+  , eulerStepSystem
+  , advanceTime
+  , trimParticleHistories
+  ) where
 
 import ClassyPrelude
 import Control.Lens
+import Control.Monad.State.Strict
 import Linear.V3
 import Linear.Vector
 
@@ -46,29 +72,43 @@ evalForce :: Floating a
           -> V3 a
 evalForce f p = (f^.forceEqn) f p
 
+-- | We should be able to build up our system updating procedure from
+-- composable components.
+type SystemUpdater pTag fTag a = ReaderT a (State (System pTag fTag a)) ()
 
 data System pTag fTag a =
   System { _systemParticles :: [Particle pTag a]
          , _systemForces :: [Force fTag a]
-         , _systemTime :: a } 
+         , _systemTime :: a
+         , _systemUpdate :: SystemUpdater pTag fTag a }    
 makeLenses ''System
 
-eulerStepSystem :: Floating a
-                => a -- ^ Time step
-                -> System pTag fTag a -- ^ The system
-                -> System pTag fTag a
-eulerStepSystem deltaT system = system
-                                & systemParticles . each %~ process
-                                & systemTime +~ deltaT
-  where
-    process particle = eulerStepParticle deltaT particle 
-                       ( sum
-                         . map (flip evalForce particle)
-                         $ system ^. systemForces )
-                       
-trimParticleHistory :: Int -> Particle pTag a -> Particle pTag a
-trimParticleHistory n = particleHistory %~ take n
+runSystemUpdate :: a -> System pTag fTag a -> System pTag fTag a
+runSystemUpdate deltaT sys =
+  execState (runReaderT (sys^.systemUpdate) deltaT) sys
 
-trimParticleHistories :: Int -> System pTag fTag a -> System pTag fTag a
-trimParticleHistories n = systemParticles . each . particleHistory %~ take n
+
+-- Basic building blocks for systemUpdate:
+
+-- | Perform numerical integration on all particles' velocities
+-- and positions.
+eulerStepSystem :: Floating a => SystemUpdater pTag fTag a
+eulerStepSystem = do
+  deltaT <- ask
+  forces <- use systemForces
+  systemParticles . each %= (\particle ->
+                              eulerStepParticle deltaT particle 
+                              ( sum
+                                . map (flip evalForce particle)
+                                $ forces ))
+
+advanceTime :: Num a => SystemUpdater pTag fTag a
+advanceTime = do
+  deltaT <- ask
+  systemTime += deltaT
+
+-- | Trim all particle histories to a given length
+trimParticleHistories :: Int -> SystemUpdater pTag fTag a
+trimParticleHistories n =
+  systemParticles . each . particleHistory %= take n
 
