@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Physics where
 
@@ -7,12 +8,11 @@ import Linear.V3
 import Linear.Vector
 
 
-data Particle d a = Particle { _particleLocation :: V3 a
-                             , _particleVelocity :: V3 a
-                             , _particleInvInertia :: a
-                             , _particleHistory :: [V3 a]
-                             , _particleData :: d
-                             } deriving Show
+data Particle pTag a = Particle { _particleLocation :: V3 a
+                                , _particleVelocity :: V3 a
+                                , _particleInvInertia :: a
+                                , _particleHistory :: [V3 a]
+                                , _particleData :: pTag }
 makeLenses ''Particle
 
 -- | Semi-implicit Euler stepping function
@@ -30,27 +30,33 @@ eulerStepParticle deltaT p accel =
     v1 = (p^.particleVelocity) ^+^ (accel ^* deltaT)
     x1 = (p^.particleLocation) ^+^ (v1 ^* deltaT)
 
-data Force d a = Force { _forceEqn :: Force d a -> Particle d a -> V3 a
-                       , _forceLocation :: V3 a
-                       , _forceData :: d }
+data Force fTag a =
+  Force { _forceEqn :: forall pTag .
+                       Force fTag a
+                    -> Particle pTag a
+                    -> V3 a
+        , _forceLocation :: V3 a
+        , _forceData :: fTag }
 makeLenses ''Force
 
 evalForce :: Floating a
-          => Force d a
-          -> Particle d a
+          => forall pTag .
+             Force fTag a
+          -> Particle pTag a
           -> V3 a
 evalForce f p = (f^.forceEqn) f p
 
 
-data System d a = System { _systemParticles :: [Particle d a]
-                         , _systemForces :: [Force d a]
-                         , _systemTime :: a } 
+data System pTag fTag a =
+  System { _systemParticles :: [Particle pTag a]
+         , _systemForces :: [Force fTag a]
+         , _systemTime :: a } 
 makeLenses ''System
 
 eulerStepSystem :: Floating a
                 => a -- ^ Time step
-                -> System d a -- ^ The system
-                -> System d a
+                -> System pTag fTag a -- ^ The system
+                -> System pTag fTag a
 eulerStepSystem deltaT system = system
                                 & systemParticles . each %~ process
                                 & systemTime +~ deltaT
@@ -60,9 +66,9 @@ eulerStepSystem deltaT system = system
                          . map (flip evalForce particle)
                          $ system ^. systemForces )
                        
-trimParticleHistory :: Int -> Particle d a -> Particle d a
+trimParticleHistory :: Int -> Particle pTag a -> Particle pTag a
 trimParticleHistory n = particleHistory %~ take n
 
-trimParticleHistories :: Int -> System d a -> System d a
+trimParticleHistories :: Int -> System pTag fTag a -> System pTag fTag a
 trimParticleHistories n = systemParticles . each . particleHistory %~ take n
 
