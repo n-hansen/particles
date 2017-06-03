@@ -1,9 +1,11 @@
+{-# LANGUAGE LambdaCase #-}
 module Render
   ( RGBA
+  , Renderable (..)
   , projectionMatrix
 --  , projectPoint
   , drawPathCairo
-  , drawPathsGloss
+  , drawManyGloss
   ) where
 
 import ClassyPrelude hiding (point)
@@ -18,6 +20,17 @@ import Linear.V3
 import Linear.V4
 import Linear.Vector
 
+
+--- What we can render... ---
+
+type RGBA a = (a,a,a,a)
+
+data Renderable v a = Path (RGBA a) [v a]
+                    | Node (RGBA a) (v a)
+
+mapRPoint :: (u a -> v a) -> Renderable u a -> Renderable v a
+mapRPoint f (Path c vs) = Path c (map f vs)
+mapRPoint f (Node c v) = Node c (f v)
 
 --- Linear algebra stuff ---
 
@@ -59,37 +72,44 @@ chunks chunkSize xs | chunkSize < 2 = [xs]
     front = take chunkSize xs
     back = drop (chunkSize-1) xs
 
--- | Project a bunch of paths based on a provided matrix, break them into chunks,
--- then sort them based on their z-dimension and render them with the provided
--- renderer.
-renderPaths :: (Floating a, Ord a)
-            => Int -- ^ Segment size (to handle overlap)
-            -> (RGBA a -> [V2 a] -> r) -- ^ Rendering function
-            -> M44 a -- ^ Projection matrix
-            -> [(RGBA a,[V3 a])] -- ^ Paths to render
-            -> [r]
-renderPaths segmentSize render projM paths = map (uncurry render) orderedSegments
+-- | Project a bunch of items based on a provided matrix, break paths into chunks,
+-- then sort all items based on their z-dimension and render them with the provided
+-- function.
+renderMany :: (Floating a, Ord a)
+           => Int -- ^ Segment size (to handle overlap)
+           -> (Renderable V2 a -> r) -- ^ Rendering function
+           -> M44 a -- ^ Projection matrix
+           -> [Renderable V3 a] -- ^ Paths to render
+           -> [r]
+renderMany segmentSize render projM renderables =
+  map render orderedRenderables
   where
-    orderedSegments = map ( second $ map ( view _xy ) )
-                      . sortBy compareSegment
-                      $ unorderedSegments                    
-    compareSegment (_, a) (_, b) =
-      case (a, b) of
-        ([], _ ) -> LT
-        (_, [] ) -> GT
-        ((V3 _ _ z1:_ ), (V3 _ _ z2:_ )) -> compare z1 z2
-    unorderedSegments =
+    orderedRenderables = map (mapRPoint $ view _xy)
+                         . sortBy zCompare
+                         $ unorderedRenderables                   
+    zCompare (Path _ []) (Path _ []) = EQ
+    zCompare (Path _ []) _ = LT
+    zCompare _ (Path _ []) = GT
+    zCompare a b =
+      let za = case a of
+            Path _ ((V3 _ _ z): _ ) -> z
+            Node _ (V3 _ _ z) -> z
+          zb = case b of
+            Path _ ((V3 _ _ z): _ ) -> z
+            Node _ (V3 _ _ z) -> z
+      in compare za zb
+    unorderedRenderables =
       concatMap
-      (\(color,path) -> map ((,) color)
-                        . chunks segmentSize
-                        . map (projectPoint projM)
-                        $ path )
-      paths
+      (\case
+          (Path color pts) -> map (Path color)
+                              . chunks segmentSize
+                              $ pts
+          r -> [r] )
+      . map (mapRPoint (projectPoint projM))
+      $ renderables
             
 
 --- Cairo rendering ---
-
-type RGBA a = (a,a,a,a)
 
 drawPathCairo :: M44 Double -- ^ Projection matrix
               -> (Double,Double) -- ^ (width,height)
@@ -146,25 +166,34 @@ drawPathGloss' projM (width,height) (colorR,colorG,colorB,colorA) path =
                    projectPoint' projM )
              path
 
--- | Draw a 2-d path.
-drawPathGloss :: (Float,Float) -- ^ (width,height)
-              -> RGBA Float -- ^ Path color
-              -> [V2 Float] -- ^ 2d path, coordinates [-1..1]
-              -> Picture
-drawPathGloss (width,height) (colorR,colorG,colorB,colorA) path =
-  color myColor myPath
+-- | Transform to gloss screen coordinates
+toGlossCoords (width,height) (V2 x y) = (x*width/2,y*height/2)
+
+-- | Make a gloss color out of a tuple
+toGlossColor (colorR,colorG,colorB,colorA) =
+  makeColor colorR colorG colorB colorA
+
+-- | Draw a thing in gloss
+drawGloss :: (Float,Float) -- ^ canvas (width,height)
+             -> Renderable V2 Float -- ^ Thing to draw
+             -> Picture
+drawGloss dims (Path c path) = color myColor myPath
   where
-    myColor = makeColor colorR colorG colorB colorA
+    myColor = toGlossColor c
     myPath = line $
-             map (\(V2 x y) -> (x*width/2, y*height/2))
+             map (toGlossCoords dims)
              path
+drawGloss dims (Node c loc) =
+  color (toGlossColor c)
+  . uncurry Graphics.Gloss.translate (toGlossCoords dims loc)
+  $ circle 5
 
 -- | Draw a bunch of paths together, segmenting them so that overlaps are
 -- correctly drawn.
-drawPathsGloss :: Int -- ^ Segment size
-               -> M44 Float -- ^ Projection matrix
-               -> (Float,Float) -- ^ Width, height
-               -> [(RGBA Float, [V3 Float])] -- ^ Paths to draw
-               -> Picture
-drawPathsGloss segmentSize projM dims =
-  pictures . renderPaths segmentSize (drawPathGloss dims) projM
+drawManyGloss :: Int -- ^ Segment size
+              -> M44 Float -- ^ Projection matrix
+              -> (Float,Float) -- ^ Width, height
+              -> [Renderable V3 Float] -- ^ Paths to draw
+              -> Picture
+drawManyGloss segmentSize projM dims =
+  pictures . renderMany segmentSize (drawGloss dims) projM
