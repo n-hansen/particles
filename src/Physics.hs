@@ -7,50 +7,62 @@ import Linear.V3
 import Linear.Vector
 
 
-data Particle a = Particle { _particleLocation :: V3 a
-                           , _particleVelocity :: V3 a
-                           , _particleInvInertia :: a
-                           , _particleHistory :: [V3 a]
-                           } deriving Show
+data Particle d a = Particle { _particleLocation :: V3 a
+                             , _particleVelocity :: V3 a
+                             , _particleInvInertia :: a
+                             , _particleHistory :: [V3 a]
+                             , _particleData :: d
+                             } deriving Show
 makeLenses ''Particle
 
 -- | Semi-implicit Euler stepping function
 eulerStepParticle :: Floating a
                   => a -- ^ Time step
-                  -> Particle a -- ^ Particle
+                  -> Particle d a -- ^ Particle
                   -> V3 a -- ^ Accelleration
-                  -> Particle a
-eulerStepParticle deltaT (Particle x0 v0 i path) accel =
-  Particle x1 v1 i (x0:path)
+                  -> Particle d a
+eulerStepParticle deltaT p accel =
+  p
+  & particleLocation .~ x1
+  & particleVelocity .~ v1
+  & particleHistory %~ (p^.particleLocation :)
   where
-    v1 = v0 ^+^ (accel ^* deltaT)
-    x1 = x0 ^+^ (v1 ^* deltaT)
+    v1 = (p^.particleVelocity) ^+^ (accel ^* deltaT)
+    x1 = (p^.particleLocation) ^+^ (v1 ^* deltaT)
 
--- | A force takes a time and a particle and returns an accelleration
-type Force a = a -> Particle a -> V3 a
+data Force d a = Force { _forceEqn :: Force d a -> Particle d a -> V3 a
+                       , _forceLocation :: V3 a
+                       , _forceData :: d }
+makeLenses ''Force
 
-data System a = System { _systemParticles :: [Particle a]
-                       , _systemForces :: [Force a]
-                       , _systemTime :: a
-                       } 
+evalForce :: Floating a
+          => Force d a
+          -> Particle d a
+          -> V3 a
+evalForce f p = (f^.forceEqn) f p
+
+
+data System d a = System { _systemParticles :: [Particle d a]
+                         , _systemForces :: [Force d a]
+                         , _systemTime :: a } 
 makeLenses ''System
 
 eulerStepSystem :: Floating a
                 => a -- ^ Time step
-                -> System a -- ^ The system
-                -> System a
+                -> System d a -- ^ The system
+                -> System d a
 eulerStepSystem deltaT system = system
                                 & systemParticles . each %~ process
                                 & systemTime +~ deltaT
   where
     process particle = eulerStepParticle deltaT particle 
                        ( sum
-                         . map (\f -> f (system ^. systemTime) particle)
+                         . map (flip evalForce particle)
                          $ system ^. systemForces )
                        
-trimParticleHistory :: Int -> Particle a -> Particle a
+trimParticleHistory :: Int -> Particle d a -> Particle d a
 trimParticleHistory n = particleHistory %~ take n
 
-trimParticleHistories :: Int -> System a -> System a
+trimParticleHistories :: Int -> System d a -> System d a
 trimParticleHistories n = systemParticles . each . particleHistory %~ take n
 

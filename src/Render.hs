@@ -1,11 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 module Render
   ( RGBA
-  , Renderable (..)
   , projectionMatrix
---  , projectPoint
-  , drawPathCairo
-  , drawManyGloss
+--  , drawPathCairo
+  , drawSystemGloss  
   ) where
 
 import ClassyPrelude hiding (point)
@@ -19,6 +17,8 @@ import Linear.V2
 import Linear.V3
 import Linear.V4
 import Linear.Vector
+
+import Physics
 
 
 --- What we can render... ---
@@ -61,7 +61,7 @@ projectPoint' :: Floating a
 projectPoint' = (view _xy .) <$> projectPoint
 
 
---- Path drawing ---
+--- Drawing many things at once ---
 
 -- | Divide a list into overlapping chunks
 chunks :: Int -> [a] -> [[a]]
@@ -107,7 +107,29 @@ renderMany segmentSize render projM renderables =
           r -> [r] )
       . map (mapRPoint (projectPoint projM))
       $ renderables
-            
+
+-- | Render a system which has been tagged with color data.
+renderSystem :: (Floating a, Ord a)
+             => Int -- ^ Path segment size
+             -> (Renderable V2 a -> r) -- ^ Rendering function
+             -> M44 a -- ^ Projection matrix
+             -> System (RGBA a) a -- ^ System to render
+             -> [r]
+renderSystem segmentSize render projM system =
+  renderMany segmentSize render projM renderables
+  where
+    renderables = mconcat [particles, forces]
+    particles = map
+                (\p -> Path
+                       (p^.particleData)
+                       (p^.particleLocation : p^.particleHistory) )
+                (system^.systemParticles)
+    forces = map
+             (\f -> Node
+                    (f^.forceData)
+                    (f^.forceLocation) )
+             (system^.systemForces)
+
 
 --- Cairo rendering ---
 
@@ -188,12 +210,10 @@ drawGloss dims (Node c loc) =
   . uncurry Graphics.Gloss.translate (toGlossCoords dims loc)
   $ circle 5
 
--- | Draw a bunch of paths together, segmenting them so that overlaps are
--- correctly drawn.
-drawManyGloss :: Int -- ^ Segment size
-              -> M44 Float -- ^ Projection matrix
-              -> (Float,Float) -- ^ Width, height
-              -> [Renderable V3 Float] -- ^ Paths to draw
-              -> Picture
-drawManyGloss segmentSize projM dims =
-  pictures . renderMany segmentSize (drawGloss dims) projM
+drawSystemGloss :: Int -- ^ Segment size
+                -> M44 Float -- ^ Projection matrix
+                -> (Float,Float) -- ^ Width, height
+                -> System (RGBA Float) Float -- ^ System to draw
+                -> Picture
+drawSystemGloss segmentSize projM dims =
+  pictures . renderSystem segmentSize (drawGloss dims) projM
