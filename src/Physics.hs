@@ -1,23 +1,27 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Physics
-  ( Particle (..)
+  ( Particle ()
+  , makeParticle
   , particleLocation
   , particleVelocity
   , particleInvInertia
   , particleHistory
   , particleData
 
-  , Force (..)
+  , Force ()
+  , makeForce
   , forceEqn
   , forceLocation
   , forceData
   , evalForce
 
-  , System (..)
+  , System ()
+  , makeSystem
   , systemParticles
   , systemForces
   , systemTime
+  , systemData
   , systemUpdate
   , runSystemUpdate
 
@@ -34,12 +38,20 @@ import Linear.V3
 import Linear.Vector
 
 
-data Particle pTag a = Particle { _particleLocation :: V3 a
+data Particle pData a = Particle { _particleLocation :: V3 a
                                 , _particleVelocity :: V3 a
                                 , _particleInvInertia :: a
                                 , _particleHistory :: [V3 a]
-                                , _particleData :: pTag }
+                                , _particleData :: pData }
 makeLenses ''Particle
+
+makeParticle :: (a,a,a) -- ^ Position
+             -> (a,a,a) -- ^ Velocity
+             -> a -- ^ Inverse inertia
+             -> pData -- ^ Data
+             -> Particle pData a
+makeParticle (x,y,z) (vx,vy,vz) invi d =
+  Particle (V3 x y z) (V3 vx vy vz) invi [] d
 
 -- | Semi-implicit Euler stepping function
 eulerStepParticle :: Floating a
@@ -56,34 +68,55 @@ eulerStepParticle deltaT p accel =
     v1 = (p^.particleVelocity) ^+^ (accel ^* deltaT)
     x1 = (p^.particleLocation) ^+^ (v1 ^* deltaT)
 
-data Force fTag a =
-  Force { _forceEqn :: forall pTag .
-                       Force fTag a
-                    -> Particle pTag a
+data Force fData a =
+  Force { _forceEqn :: forall pData .
+                       Force fData a
+                    -> Particle pData a
                     -> V3 a
         , _forceLocation :: V3 a
-        , _forceData :: fTag }
+        , _forceData :: fData }
 makeLenses ''Force
 
+makeForce :: (forall pData. Force fData a -> Particle pData a -> V3 a)
+             -- ^ Force strength equation
+          -> (a,a,a) -- ^ Force location
+          -> fData -- ^ Data
+          -> Force fData a
+makeForce eqn (x,y,z) d =
+  Force eqn (V3 x y z) d
+             
 evalForce :: Floating a
-          => forall pTag .
-             Force fTag a
-          -> Particle pTag a
+          => forall pData .
+             Force fData a
+          -> Particle pData a
           -> V3 a
 evalForce f p = (f^.forceEqn) f p
 
 -- | We should be able to build up our system updating procedure from
 -- composable components.
-type SystemUpdater pTag fTag a = ReaderT a (State (System pTag fTag a)) ()
+type SystemUpdater pData fData sData a =
+  ReaderT a (State (System pData fData sData a)) ()
 
-data System pTag fTag a =
-  System { _systemParticles :: [Particle pTag a]
-         , _systemForces :: [Force fTag a]
+data System pData fData sData a =
+  System { _systemParticles :: [Particle pData a]
+         , _systemForces :: [Force fData a]
          , _systemTime :: a
-         , _systemUpdate :: SystemUpdater pTag fTag a }    
+         , _systemData :: sData
+         , _systemUpdate :: SystemUpdater pData fData sData a }    
 makeLenses ''System
 
-runSystemUpdate :: a -> System pTag fTag a -> System pTag fTag a
+makeSystem :: Num a
+           => [Particle pData a]
+           -> [Force fData a]
+           -> sData
+           -> SystemUpdater pData fData sData a
+           -> System pData fData sData a
+makeSystem particles forces d updater =
+  System particles forces 0 d updater
+
+runSystemUpdate :: a
+                -> System pData fData sData a
+                -> System pData fData sData a
 runSystemUpdate deltaT sys =
   execState (runReaderT (sys^.systemUpdate) deltaT) sys
 
@@ -92,7 +125,7 @@ runSystemUpdate deltaT sys =
 
 -- | Perform numerical integration on all particles' velocities
 -- and positions.
-eulerStepSystem :: Floating a => SystemUpdater pTag fTag a
+eulerStepSystem :: Floating a => SystemUpdater pData fData sData a
 eulerStepSystem = do
   deltaT <- ask
   forces <- use systemForces
@@ -102,13 +135,13 @@ eulerStepSystem = do
                                 . map (flip evalForce particle)
                                 $ forces ))
 
-advanceTime :: Num a => SystemUpdater pTag fTag a
+advanceTime :: Num a => SystemUpdater pData fData sData a
 advanceTime = do
   deltaT <- ask
   systemTime += deltaT
 
 -- | Trim all particle histories to a given length
-trimParticleHistories :: Int -> SystemUpdater pTag fTag a
+trimParticleHistories :: Int -> SystemUpdater pData fData sData a
 trimParticleHistories n =
   systemParticles . each . particleHistory %= take n
 

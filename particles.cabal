@@ -30,4 +30,7 @@ executable particles
                      , lens
                      , cairo
                      , gloss
-                     , psqueues
+                     , random
+                     , MonadRandom
+                     , mersenne-random-pure64
+                     

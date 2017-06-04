@@ -113,7 +113,7 @@ renderSystem :: (Floating a, Ord a)
              => Int -- ^ Path segment size
              -> (Renderable V2 a -> r) -- ^ Rendering function
              -> M44 a -- ^ Projection matrix
-             -> System (RGBA a) (RGBA a) a -- ^ System to render
+             -> System (RGBA a) (RGBA a) sData a -- ^ System to render
              -> [r]
 renderSystem segmentSize render projM system =
   renderMany segmentSize render projM renderables
@@ -213,7 +213,7 @@ drawGloss dims (Node c loc) =
 drawSystemGloss :: Int -- ^ Segment size
                 -> M44 Float -- ^ Projection matrix
                 -> (Float,Float) -- ^ Width, height
-                -> System (RGBA Float) (RGBA Float) Float -- ^ System to draw
+                -> System (RGBA Float) (RGBA Float) sData Float
                 -> Picture
 drawSystemGloss segmentSize projM dims =
   pictures . renderSystem segmentSize (drawGloss dims) projM
