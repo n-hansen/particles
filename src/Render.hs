@@ -7,7 +7,7 @@ module Render
   ) where
 
 import ClassyPrelude hiding (point)
-import Control.Lens
+import Control.Lens hiding (cons)
 import Graphics.Gloss
 import Graphics.Rendering.Cairo
 import Linear.Epsilon (Epsilon)
@@ -122,7 +122,7 @@ renderSystem segmentSize render projM system =
     particles = map
                 (\p -> Path
                        (p^.particleData)
-                       (p^.particleLocation : p^.particleHistory) )
+                       (p^.particleLocation : toList (p^.particleHistory)) )
                 (system^.systemParticles)
     forces = map
              (\f -> Node

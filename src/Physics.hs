@@ -32,7 +32,7 @@ module Physics
   ) where
 
 import ClassyPrelude
-import Control.Lens
+import Control.Lens hiding (cons)
 import Control.Monad.State.Strict
 import Linear.V3
 import Linear.Vector
@@ -41,7 +41,7 @@ import Linear.Vector
 data Particle pData a = Particle { _particleLocation :: V3 a
                                 , _particleVelocity :: V3 a
                                 , _particleInvInertia :: a
-                                , _particleHistory :: [V3 a]
+                                , _particleHistory :: Seq (V3 a)
                                 , _particleData :: pData }
 makeLenses ''Particle
 
@@ -51,7 +51,7 @@ makeParticle :: (a,a,a) -- ^ Position
              -> pData -- ^ Data
              -> Particle pData a
 makeParticle (x,y,z) (vx,vy,vz) invi d =
-  Particle (V3 x y z) (V3 vx vy vz) invi [] d
+  Particle (V3 x y z) (V3 vx vy vz) invi mempty d
 
 -- | Semi-implicit Euler stepping function
 eulerStepParticle :: Floating a
@@ -63,7 +63,7 @@ eulerStepParticle deltaT p accel =
   p
   & particleLocation .~ x1
   & particleVelocity .~ v1
-  & particleHistory %~ (p^.particleLocation :)
+  & particleHistory %~ (cons $ p^.particleLocation)
   where
     v1 = (p^.particleVelocity) ^+^ (accel ^* deltaT)
     x1 = (p^.particleLocation) ^+^ (v1 ^* deltaT)
