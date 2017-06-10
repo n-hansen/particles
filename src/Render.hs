@@ -1,6 +1,11 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Render
   ( RGBA
+  , HasColorField
   , projectionMatrix
 --  , drawPathCairo
   , drawSystemGloss  
@@ -24,6 +29,13 @@ import Physics
 --- What we can render... ---
 
 type RGBA a = (a,a,a,a)
+
+-- | We can render things as long as they have associated color data.
+class HasColorField r a where
+  colorField :: Lens' r (RGBA a)
+
+instance HasColorField (RGBA a) a where
+  colorField = id
 
 data Renderable v a = Path (RGBA a) [v a]
                     | Node (RGBA a) (v a)
@@ -109,11 +121,13 @@ renderMany segmentSize render projM renderables =
       $ renderables
 
 -- | Render a system which has been tagged with color data.
-renderSystem :: (Floating a, Ord a)
+renderSystem :: (Floating a, Ord a,
+                 HasColorField pData a,
+                 HasColorField fData a)
              => Int -- ^ Path segment size
              -> (Renderable V2 a -> r) -- ^ Rendering function
              -> M44 a -- ^ Projection matrix
-             -> System (RGBA a) (RGBA a) sData a -- ^ System to render
+             -> System pData fData sData a -- ^ System to render
              -> [r]
 renderSystem segmentSize render projM system =
   renderMany segmentSize render projM renderables
@@ -121,12 +135,12 @@ renderSystem segmentSize render projM system =
     renderables = mconcat [particles, forces]
     particles = map
                 (\p -> Path
-                       (p^.particleData)
+                       (p^.particleData.colorField)
                        (p^.particleLocation : toList (p^.particleHistory)) )
                 (system^.systemParticles)
     forces = map
              (\f -> Node
-                    (f^.forceData)
+                    (f^.forceData.colorField)
                     (f^.forceLocation) )
              (system^.systemForces)
 
@@ -210,10 +224,12 @@ drawGloss dims (Node c loc) =
   . uncurry Graphics.Gloss.translate (toGlossCoords dims loc)
   $ circle 5
 
-drawSystemGloss :: Int -- ^ Segment size
+drawSystemGloss :: (HasColorField pData Float,
+                    HasColorField fData Float)
+                => Int -- ^ Segment size
                 -> M44 Float -- ^ Projection matrix
                 -> (Float,Float) -- ^ Width, height
-                -> System (RGBA Float) (RGBA Float) sData Float
+                -> System pData fData sData Float
                 -> Picture
 drawSystemGloss segmentSize projM dims =
   pictures . renderSystem segmentSize (drawGloss dims) projM

@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- Components for building up systems
 module Systems where
 
@@ -12,19 +14,28 @@ import System.Random
 import Physics
 
 
+class HasPRNGField a g where
+  prngField :: Lens' a g
+
+instance RandomGen g => HasPRNGField g g where
+  prngField = id
+
+
 -- | Generate a new random particle with the given constraints.
-generateParticle :: (RandomGen g, RealFrac a)
+generateParticle :: (RandomGen g,
+                     RealFrac a,
+                     HasPRNGField sData g)
                  => a -- ^ Time delay between particle production
                  -> Rand g (a,a,a) -- ^ Starting position generation
                  -> Rand g (a,a,a) -- ^ Starting velocity generation
                  -> Rand g a -- ^ Starting inv inertia generation
                  -> Rand g pData -- ^ Starting data generation
-                 -> SystemUpdater pData fData g a
+                 -> SystemUpdater pData fData sData a
 generateParticle delay genPos genVel genInvI genData = do
   currT <- use systemTime
   nextT <- asks (+currT)
   when (floor (currT/delay) /= floor (nextT/delay)) $ do
-           gen <- use systemData
+           gen <- use $ systemData . prngField
            let ((pos,vel,invi,d),newGen) =
                  runRand
                  ( liftM4 (,,,)
@@ -33,7 +44,7 @@ generateParticle delay genPos genVel genInvI genData = do
                    genInvI
                    genData )
                  gen
-           systemData .= newGen
+           systemData . prngField .= newGen
            systemParticles %= (makeParticle pos vel invi d :)
   
 

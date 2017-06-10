@@ -13,10 +13,12 @@ import Physics
 import Render
 import Systems
 
+
 main :: IO ()
 main = simulate display black 60 system render update
   where
     display = InWindow "demo" (400,400) (10,10)
+    system :: System (RGBA Float) (RGBA Float) PureMT Float
     system =
       makeSystem []
       [ inversePowerForce 3 1000 (0,0,0) (0.2,0.3,0.9,0.7) ]
@@ -24,7 +26,7 @@ main = simulate display black 60 system render update
       ( generateParticle 4
         ((\x->(x,70,0)) <$> getRandomR (-60,60))
         ( liftM3 (,,)
-          (getRandomR (-3,3))
+          (getRandomR (-3,3) :: Rand PureMT Float )
           (getRandomR (-3,3))
           (getRandomR (-1,1)) )
         (getRandomR (30,60))
@@ -41,7 +43,7 @@ main = simulate display black 60 system render update
                                   (fg+pg)/2,
                                   (fb+pb)/2,
                                   a ))) >>
-        clipParticles (100000) >>
+        clipParticles 100000 >>
         trimParticleHistories 2000 >>
         advanceTime )
                             
